@@ -123,16 +123,53 @@ static void reference_const(void)
 int &reference_as_return_temp_ref(void)
 {
     static int a = 99; // if no static it's warning
+    //int a = 99;
     return a;
 }
+
+float circle_area(float r)
+{
+    return (float)(3.14 * r * r);
+}
+
+float temp;
+float &circle_area2(float r)
+{
+    temp = (float)(3.14 * r * r);
+    return temp;
+}
+/*
+ * 引用作为返回值
+ * 类型标识符 &函数名（形参列表及类型说明）
+ * {函数体}
+ * 1. 以引用返回函数值，定义函数时需要在函数名前加&
+ * 2. 用引用返回一个函数值的最大好处是，在内存中不产生被返回值的副本
+ * 注意:
+ * 1. 不能返回局部变量的引用
+ * 2. 不能返回函数内部new分配的内存的引用
+ * 3. 可以返回类成员的引用，但最好是const
+ * 4. 引用与一些操作符的重载, 例如 <<, >>
+ * 5. 在一些操作符中，却千万不能返回引用：+ - * / 四则运算符
+ */
 static void reference_as_return(void)
 {
     int b = reference_as_return_temp_ref();
-    int i;
-
-    for (i = 0; i < 9999; i++) {
-        ;
-    }
-
     cout << b << endl;
+
+    float radius = 10.0;
+    float area = circle_area((float)b);
+    cout << "area is " << area << " with radium " << b << endl;
+
+    float area2 = circle_area2(radius);
+    cout << "area2 is " << area2 << " with radium " << radius << endl;
+    cout << "temp is " << temp << endl;
+
+//    float &area3 = circle_area(radius); // circle_area(radius) is not l-value
+//    cout << "area3 is " << area3 << " with radium " << radius << endl;
+
+    float &area4 = circle_area2(radius);
+    cout << "area4 is " << area4 << " with radium " << radius << endl;
+
+    circle_area2(radius) = 789.0;
+    cout << "temp is " << temp << endl;
 }
