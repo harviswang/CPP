@@ -1,4 +1,4 @@
 CCC ?= g++
 all:
-	$(CCC) -Wall constructor_test.cpp
+	$(CCC) -Wall copy_constructor_test.cpp constructor_test.cpp
 
