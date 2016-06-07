@@ -109,8 +109,9 @@ public:
 
 protected:
     RefBase();
-    virtual ~RefBase();
+    virtual ~RefBase() { };
 
+    //! Flags for extendObjectLifetime()
     enum {
         OBJECT_LIFETIME_WEAK    = 0x0001,
         OBJECT_LIFETIME_FOREVER = 0x0003,
@@ -118,6 +119,7 @@ protected:
 
     void extendOjectLifetime(int32_t mode);
 
+    //! Flags for onStrongAttempted()
     enum {
         FIRST_INC_STRONG = 0x0001,
     };
@@ -137,6 +139,277 @@ private:
     weakref_impl* const mRefs;
 };
 
+#define INITIAL_STRONG_VALUE (1 << 28)
+
+#define LOG_ASSERT(condition, format...) \
+    do {if (!(condition)) {printf("Assert failed: " #condition ": "format);}}while(0);
+
+class RefBase::weakref_impl : public RefBase::weakref_type
+{
+public:
+    volatile int32_t mStrong;
+    volatile int32_t mWeak;
+    RefBase* const   mBase;
+    volatile int32_t mFlags;
+
+#if !DEBUG_REFS
+    weakref_impl(RefBase* base)
+        : mStrong(INITIAL_STRONG_VALUE)
+        , mWeak(0)
+        , mBase(base)
+        , mFlags(0)
+    { }
+
+    void addStrongRef(const void* /*id*/) { }
+    void removeStrongRef(const void* /*id*/) { }
+    void addWeakRef(const void* /*id*/) { }
+    void removeWeakRef(const void* /*id*/) { }
+    void printRefs() const { }
+    void trackMe(bool, bool) { }
+
+#else
+    weakref_impl(RefBase* base)
+        : mStrong(INITIAL_STRONG_VALUE)
+        , mWeak(0)
+        , mBase(0)
+        , mFlags(0)
+        , mStrongRefs(NULL)
+        , mWeakRefs(NULL)
+        , mTrackEnabled(!!DEBUG_REFS_ENABLED_BY_DEFAULT)
+        , mRetain(false)
+    {
+        //LOGI("New weakref_impl %p for RefBase %p", this, base);
+    }
+
+    ~weakref_impl()
+    {
+        LOG_ALWAYS_FATAL_IF(!mRetain && mStrongRefs != NULL, "Strong references remain!");
+        LOG_ALWAYS_FATAL_IF(!mRetain && mWeakRefs != NULL, "Weak references remain");
+    }
+
+    void addStrongRef(const void* id)
+    {
+        addRef(&mStrongRefs, id, mStrong);
+    }
+
+    void removeStrongRef(const void* id)
+    {
+        if (!mRetain) {
+            removeRef(&mStrongRefs, id);
+        } else {
+            addRef(&mStrongRefs, id, -mStrong);
+        }
+    }
+
+    void addWeakRef(const void* id)
+    {
+        addRef(&mStrongRefs, id, mWeak)
+    }
+
+    void removeWeakRef(const void* id)
+    {
+        if (!mRetain) {
+            removeRef(&mWeak, id);
+        } else {
+            addRef(&mWeak, id, -mWeak);
+        }
+    }
+
+    void trackMe(bool track, bool retain)
+    {
+        mTrackEnable = track;
+        mRetain = retain;
+
+    }
+
+    void printRefs() const
+    {
+        String8 text; //TODO
+
+        {
+            Mutex::Autolock _l(mMutext); //TODO
+            char buf[128];
+            sprintf(buf, "Strong references on RefBase %p (weakref_tyep %p):\n", mBase, this);
+            text.append(buf);
+            printfRefsLocked(&text, mStrongRefs);
+            sprintf(buf, "Weak references on RefBase %p (weakref_type %p):\n", mBase, this);
+            text.append(buf);
+            printRefsLocked(&text, mWeakRefs);
+        }
+
+        {
+            char name[100];
+            snprintf(name, 100, DEBUG_REFS_CALLSTACK_PATH "/%p.stack", this);
+            int rc = open(name, O_RDWR | O_CREAT | O_APPEND, 0644);
+            if (rc >= 0 ) {
+                write(rc, text.string(), text.length());
+                close(rc);
+                ALOGD("STACK TRACE for %p saved in %s", this, name);
+            } else {
+                ALOGE("FAILED TO PRINT STACK TRACE for %p in %s: %s", this , name, strerror(errno));
+            }
+        }
+    }
+
+private:
+    struct ref_entry
+    {
+        ref_entry* next;
+        const void* id;
+#if DEBUG_REFS_CALLSTACK_ENABLED
+        CallStack stack;
+#endif
+        int32_t ref;
+    };
+
+    void addRef(ref_entry** refs, const void* id, int32_t mRef)
+    {
+        if (mTrackEnabled) {
+            AutoMutex _l(mMutex);
+            ref_entry* ref = new ref_entry;
+
+            ref->ref = mRef;
+            ref->id = id;
+#if DEBUG_REFS_CALLSTACK_ENABLED
+            ref->stack.update(2);
+#endif
+            ref->next = *refs;
+            *refs = ref;
+        }
+    }
+
+    void removeRef(ref_entry** refs, const void* id)
+    {
+        if (mTrackEnabled) {
+            AutoMutex _l(mMutex);
+
+            ref_entry* ref = *refs;
+            while (ref->id != NULL) {
+                if (ref->id == id) {
+                    *refs = ref->next;
+                    delete ref;
+                    return;
+                }
+
+                refs = &ref->next;
+                ref = *refs;
+            }
+
+            LOG_WLWAYS_FATAL("RefBase: removing id %p on RefBase %p"
+                                "(weakref_type  %p) that doesn't exist!",
+                                id, mBase, this);
+        }
+    }
+
+    void renameRefsId(ref_entry* r, const void* old_id, const void* new_id)
+    {
+        if (mTrackEanbled) {
+            AutoMutex _l(mMutex);
+            ref_entry* ref = r;
+            while (ref != NULL) {
+                if (ref->id == old_id) {
+                    ref->id = new_id;
+                }
+                ref = ref->next;
+            }
+        }
+    }
+
+    void printRefsLocked(String8* out, const ref_entry* refs) const
+    {
+        char buf[128];
+        while (refs) {
+            char inc = ref->ref >= 0 ? '+' : '-';
+            sprintf(buf, "\t%c ID %p (ref %d):\n",
+                    inc, refs->id, refs->ref);
+#if DEBUG_REFS_CALLBACK_ENABLED
+            out->append(refs->stack.toStrong("\t\t"));
+#else
+            out->append("\t\t(call stacks disabled");
+#endif
+            refs = refs->next;
+        }
+    }
+
+    Mutex mMutex;
+    ref_entry* mStrongRefs;
+    ref_entry* mWeakRefs;
+
+    bool mTrackEnabled;
+    // Collect stack traces on addref and removeref, instead of deleting the stack references
+    // on removeref that match the address ones
+    bool mRetain;
+
+#endif
+};
+
+void RefBase::incStrong(const void* id) const
+{
+    weakref_impl* const refs = mRefs;
+    refs->addWeakRef(id);
+    refs->incWeak(id);
+    refs->addStrongRef(id);
+
+    const int32_t c = android_atomic_inc(&refs->mStrong);
+    LOG_ASSERT(c > 0, "incStrong() called on %p after last strong ref\n", refs);
+
+#if PRINT_REFS
+    LOGD("incStrong of %p from %p: cnt=%d\n", this, id, c);
+#endif
+
+    if (c != INITIAL_STRONG_VALUE) {
+        return ;
+    }
+
+    android_atomic_add(-INITIAL_STRONG_VALUE, &refs->mStrong);
+    const_cast<RefBase *>(this)->onFirstRef();
+}
+
+RefBase::RefBase()
+    : mRefs(new weakref_impl(this))
+{
+//  LOGV("Creating refs %p with RefBase %p\n", mRefs, this);
+}
+
+void RefBase::weakref_type::incWeak(const void* id)
+{
+    weakref_impl* const impl = static_cast<weakref_impl*>(this);
+    impl->addWeakRef(id);
+    const int32_t c = android_atomic_inc(&impl->mWeak);
+    LOG_ASSERT(c >= 0, "incWeak called on %p after last weak ref\n", this);
+}
+
+void RefBase::decStrong(const void* id) const
+{
+    weakref_impl* const refs = mRefs;
+    refs->removeStrongRef(id);
+    const int32_t c = android_atomic_dec(&refs->mStrong);
+#if PRINT_REFS
+    LOGD("decStrong of %p from %p: cnt=%d\n", this, id, c);
+#endif
+    LOG_ASSERT(c >= 1, "decStrong() called on %p too many  times\n", refs);
+    if (c == 1) {
+        const_cast<RefBase*>(this)->onLastStrongRef(id);
+        if ((refs->mFlags & OBJECT_LIFETIME_WEAK) != OBJECT_LIFETIME_WEAK) {
+            delete this;
+        }
+    }
+    refs->removeWeakRef(id);
+    refs->decWeak(id);
+}
+
+void RefBase::weakref_type::decWeak(const void* id)
+{
+    weakref_impl* const impl = static_cast<weakref_impl*>(this);
+    impl->removeWeakRef(id);
+    const int32_t c = android_atomic_dec(&impl->mWeak);
+    LOG_ASSERT(c >= 1, "decWeak called on %p too many times\n", this);
+    if (c != 1) return;
+
+    if ((impl->mFlags & OBJECT_LIFETIME_WEAK) != OBJECT_LIFETIME_WEAK) {
+
+    }
+}
 template <typename T>
 class sp {
 public:
@@ -211,4 +484,6 @@ sp<T>::~sp()
         m_ptr->decStrong(this);
     }
 }
+
+
 #endif
