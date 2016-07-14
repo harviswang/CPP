@@ -1,3 +1,3 @@
 CCC ?= c++
 all:
-	$(CCC) -Wall LightPointer.cpp
+	$(CCC) -g -Wall LightPointer.cpp

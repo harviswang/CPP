@@ -1,6 +1,7 @@
 #include <iostream>
 using namespace std;
 
+static void constructor_protected_test(void);
 static void constructor_assignment_test(void);
 static void constructor_assignment_new_test(void);
 static void constructor_private_test(void);
@@ -12,6 +13,7 @@ int main(int argc, char **argv)
 	constructor_assignment_new_test();
 	constructor_private_test();
 	copy_constructor_test();
+	constructor_protected_test();
 
 	return 0;
 }
@@ -91,7 +93,7 @@ public:
 
 /*
  * 使用指针和引用, 生成的a.out的大小一样
- * 对于singleto模式必须使用
+ * 对于singleto模式必须使用引用
  */
 static void constructor_private_test(void)
 {
@@ -102,4 +104,28 @@ static void constructor_private_test(void)
     Singleton *s2 = &Singleton::getInstance();
     s2->fun();
     cout << s2 << endl;
+}
+
+/*
+ * protected修饰构造函数对类外调用是屏蔽的, 对派生类是透明的
+ */
+class Computer {
+protected:
+    Computer() {
+        cout << __func__ << "(), Line:" << __LINE__ << endl;
+    }
+    ~Computer() {
+        cout << __func__ << "(), Line:" << __LINE__ << endl;
+    }
+};
+class Thinkpad: public Computer
+{
+public:
+    Thinkpad() {cout << "Thinkpad constructor\n";}
+};
+
+static void constructor_protected_test(void)
+{
+    cout << __func__ << " test ...\n";
+    Thinkpad e430;
 }

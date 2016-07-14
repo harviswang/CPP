@@ -5,6 +5,7 @@
  * 2. 类的另一个特征就是继承，protected的作用就是实现这一目的。
  *    所以：用户代码（类外）可以访问public成员而不能访问protected成员；
  *         protected成员可以被派生类对象访问。
+ * 3. 若没有声明, C++默认按照private
  *
  * 继承中public/protected/private的特点：
  * 先记住：不管是否继承，上面的规则永远适用！

@@ -3,8 +3,115 @@
 
 #include <stdint.h> //int32_t
 #include <stdio.h>
+#include <pthread.h> //pthread_mutex_t
+#include <string.h> // strerror()
+#include <errno.h> // errno
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+#define DEBUG_REFS 1
+#define DEBUG_REFS_ENABLED_BY_DEFAULT 1
+#define DEBUG_REFS_CALLSTACK_PATH "/dev/shm"
+#define LOG_ALWAYS_FATAL_IF LOG_ASSERT
+#define LOG_ASSERT(condition, format...) \
+    do {if (!(condition)) {printf("Assert failed: " #condition ": "format);}}while(0);
+#define LOG_WLWAYS_FATAL(format...) \
+    do { printf(format); } while(0);
+#define ALOGD printf
+#define ALOGE printf
+#define DEBUG() printf("%s():%d\n", __func__, __LINE__)
 
 template<typename T> class wp;
+
+typedef int32_t status_t;
+typedef char String8;
+
+class Mutex {
+public:
+    enum {
+        PRIVATE = 0,
+        SHARED = 1
+    };
+
+    Mutex();
+    Mutex(const char* name);
+    Mutex(int type, const char* name = NULL);
+    ~Mutex();
+
+    // lock or unlock the mutex
+    status_t   lock();
+    void       unlock();
+
+    // lock if possiable; return 0 on success, error otherwise
+    status_t   tryLock();
+
+    // Manages the mutex automatically, It'll be locked when Autolock is
+    // constructed and released when Autolock goes out of scope.
+    class Autolock {
+    public:
+        inline Autolock(Mutex& mutex) : mLock(mutex) { mLock.lock(); }
+        inline Autolock(Mutex* mutex) : mLock(*mutex) { mLock.lock(); }
+        inline ~Autolock() { mLock.unlock(); }
+    private:
+        Mutex& mLock;
+    };
+
+private:
+//    friend class Condition;
+
+    // A mutex cannot be copied
+               Mutex(const Mutex&);
+    Mutex&     operator = (const Mutex&);
+
+    pthread_mutex_t mMutex;
+};
+
+inline Mutex::Mutex()
+{
+    pthread_mutex_init(&mMutex, NULL);
+}
+
+inline Mutex::Mutex(__attribute__((unused)) const char* name)
+{
+    pthread_mutex_init(&mMutex, NULL);
+}
+
+inline Mutex::Mutex(int type, __attribute__((unused)) const char* name)
+{
+    if (type == SHARED) {
+        pthread_mutexattr_t attr;
+        pthread_mutexattr_init(&attr);
+        pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+        pthread_mutex_init(&mMutex, &attr);
+        pthread_mutexattr_destroy(&attr);
+    } else {
+        pthread_mutex_init(&mMutex, NULL);
+    }
+}
+
+inline Mutex::~Mutex()
+{
+    pthread_mutex_destroy(&mMutex);
+}
+
+inline status_t Mutex::lock()
+{
+    return pthread_mutex_lock(&mMutex);
+}
+
+inline void Mutex::unlock()
+{
+    pthread_mutex_unlock(&mMutex);
+}
+
+inline status_t Mutex::tryLock()
+{
+    return pthread_mutex_trylock(&mMutex);
+}
+
+typedef Mutex::Autolock AutoMutex;
 
 #define COMPARE(_op_)                                  \
 inline bool operator _op_ (const sp<T>& o) const {     \
@@ -109,7 +216,7 @@ public:
 
 protected:
     RefBase();
-    virtual ~RefBase() { };
+    virtual ~RefBase();
 
     //! Flags for extendObjectLifetime()
     enum {
@@ -141,9 +248,6 @@ private:
 
 #define INITIAL_STRONG_VALUE (1 << 28)
 
-#define LOG_ASSERT(condition, format...) \
-    do {if (!(condition)) {printf("Assert failed: " #condition ": "format);}}while(0);
-
 class RefBase::weakref_impl : public RefBase::weakref_type
 {
 public:
@@ -173,8 +277,8 @@ public:
         , mWeak(0)
         , mBase(0)
         , mFlags(0)
-        , mStrongRefs(NULL)
-        , mWeakRefs(NULL)
+        , mStrongRefs(new ref_entry)
+        , mWeakRefs(new ref_entry)
         , mTrackEnabled(!!DEBUG_REFS_ENABLED_BY_DEFAULT)
         , mRetain(false)
     {
@@ -203,35 +307,36 @@ public:
 
     void addWeakRef(const void* id)
     {
-        addRef(&mStrongRefs, id, mWeak)
+        addRef(&mWeakRefs, id, mWeak);
     }
 
     void removeWeakRef(const void* id)
     {
         if (!mRetain) {
-            removeRef(&mWeak, id);
+            removeRef(&mWeakRefs, id);
         } else {
-            addRef(&mWeak, id, -mWeak);
+            addRef(&mWeakRefs, id, -mWeak);
         }
     }
 
     void trackMe(bool track, bool retain)
     {
-        mTrackEnable = track;
+        mTrackEnabled = track;
         mRetain = retain;
 
     }
 
     void printRefs() const
     {
+#if 0
         String8 text; //TODO
 
         {
-            Mutex::Autolock _l(mMutext); //TODO
+            Mutex::Autolock _l(mMutex);
             char buf[128];
             sprintf(buf, "Strong references on RefBase %p (weakref_tyep %p):\n", mBase, this);
             text.append(buf);
-            printfRefsLocked(&text, mStrongRefs);
+            printRefsLocked(&text, mStrongRefs);
             sprintf(buf, "Weak references on RefBase %p (weakref_type %p):\n", mBase, this);
             text.append(buf);
             printRefsLocked(&text, mWeakRefs);
@@ -249,12 +354,13 @@ public:
                 ALOGE("FAILED TO PRINT STACK TRACE for %p in %s: %s", this , name, strerror(errno));
             }
         }
+#endif
     }
 
 private:
     struct ref_entry
     {
-        ref_entry* next;
+        struct ref_entry* next;
         const void* id;
 #if DEBUG_REFS_CALLSTACK_ENABLED
         CallStack stack;
@@ -275,6 +381,9 @@ private:
 #endif
             ref->next = *refs;
             *refs = ref;
+            LOG_WLWAYS_FATAL("RefBase: add id %p on RefBase %p"
+                                "(weakref_type  %p) that doesn't exist!\n",
+                                id, mBase, this);
         }
     }
 
@@ -296,14 +405,14 @@ private:
             }
 
             LOG_WLWAYS_FATAL("RefBase: removing id %p on RefBase %p"
-                                "(weakref_type  %p) that doesn't exist!",
+                                "(weakref_type  %p) that doesn't exist!\n",
                                 id, mBase, this);
         }
     }
 
     void renameRefsId(ref_entry* r, const void* old_id, const void* new_id)
     {
-        if (mTrackEanbled) {
+        if (mTrackEnabled) {
             AutoMutex _l(mMutex);
             ref_entry* ref = r;
             while (ref != NULL) {
@@ -319,13 +428,14 @@ private:
     {
         char buf[128];
         while (refs) {
-            char inc = ref->ref >= 0 ? '+' : '-';
+            char inc = refs->ref >= 0 ? '+' : '-';
             sprintf(buf, "\t%c ID %p (ref %d):\n",
                     inc, refs->id, refs->ref);
 #if DEBUG_REFS_CALLBACK_ENABLED
             out->append(refs->stack.toStrong("\t\t"));
 #else
-            out->append("\t\t(call stacks disabled");
+            //out->append("\t\t(call stacks disabled");
+            printf("\t\t(call stacks disabled\n");
 #endif
             refs = refs->next;
         }
@@ -407,9 +517,34 @@ void RefBase::weakref_type::decWeak(const void* id)
     if (c != 1) return;
 
     if ((impl->mFlags & OBJECT_LIFETIME_WEAK) != OBJECT_LIFETIME_WEAK) {
-
+        if (impl->mStrong == INITIAL_STRONG_VALUE) {
+            delete impl->mBase;
+        } else {
+//            LOGV("Freeing refs %p of old RefBase %p\n", this, impl->mBase);
+            delete impl;
+        }
+    } else {
+        impl->mBase->onLastWeakRef(id);
+        if ((impl->mFlags & OBJECT_LIFETIME_FOREVER) != OBJECT_LIFETIME_FOREVER) {
+            delete impl->mBase;
+        }
     }
 }
+
+void RefBase::onFirstRef() { }
+void RefBase::onLastStrongRef(const void* id) { }
+void RefBase::onIncStrongAttempted(uint32_t flags, const void* id) { }
+void RefBase::onLastWeakRef(const void* id) { }
+
+RefBase::~RefBase()
+{
+//    LOGV("Destroying RefBase %p (refs %p)\n", this, mRefs);
+    if (mRefs->mWeak == 0) {
+//        LOGV("Freeing refs %p of old RefBase %p\n", mRefs, this);
+        delete mRefs;
+    }
+}
+
 template <typename T>
 class sp {
 public:
@@ -484,6 +619,4 @@ sp<T>::~sp()
         m_ptr->decStrong(this);
     }
 }
-
-
 #endif
