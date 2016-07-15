@@ -48,17 +48,110 @@ static void lp_test(void)
     //delete pLightClass;
 }
 
-class StrongClass : public RefBase
+class WeightClass : public RefBase
 {
 public:
-    StrongClass() { printf("Construct StrongClass Object\n"); }
-    ~StrongClass() { printf("Destory StrongClass Object\n"); }
+    void printRefCount() {
+        int32_t strong = getStrongCount();
+        weakref_type* ref = getWeakRefs();
+
+        printf("Strong Ref Count: %d.\n", (strong == INITIAL_STRONG_VALUE) ? 0 : strong);
+        printf("Weak Ref Count: %d.\n", ref->getWeakCount());
+    }
 };
+
+class StrongClass : public WeightClass
+{
+public:
+    StrongClass() {
+        printf("Construct StrongClass Object\n");
+    }
+    ~StrongClass() {
+        printf("Destory StrongClass Object\n");
+    }
+};
+
+class WeakClass : public WeightClass
+{
+public:
+    WeakClass() {
+        extendObjectLifetime(OBJECT_LIFETIME_WEAK);
+        printf("Construct WeakClass Object.\n");
+    }
+
+    virtual ~WeakClass() {
+        printf("Destroy WeakClass Object.\n");
+    }
+};
+
+class ForeverClass : public WeightClass
+{
+public:
+    ForeverClass() {
+        extendObjectLifetime(OBJECT_LIFETIME_FOREVER);
+        printf("Construct ForeverClass Object.\n");
+    }
+
+    virtual ~ForeverClass() {
+        printf("Destroy ForeverClass Object.\n");
+    }
+};
+
+void TestStrongClass(StrongClass* pStrongClass)
+{
+    wp<StrongClass> wpOut = pStrongClass;
+    pStrongClass->printRefCount();
+
+    {
+        sp<StrongClass> spInner = pStrongClass;
+        pStrongClass->printRefCount();
+    }
+
+    sp<StrongClass> spOut = wpOut.promote();
+    printf("spOut: %p.\n", spOut.get());
+}
+
+void TestWeakClass(WeakClass* pWeakClass)
+{
+    wp<WeakClass> wpOut = pWeakClass;
+    pWeakClass->printRefCount();
+
+    {
+        sp<WeakClass> spInner = pWeakClass;
+        pWeakClass->printRefCount();
+    }
+
+    pWeakClass->printRefCount();
+    sp<WeakClass> spOut = wpOut.promote();
+    printf("spOut: %p.\n", spOut.get());
+}
+
+void TestForeverClass(ForeverClass* pForeverClass)
+{
+    wp<ForeverClass> wpOut = pForeverClass;
+    pForeverClass->printRefCount();
+
+    {
+        sp<ForeverClass> spInner = pForeverClass;
+        pForeverClass->printRefCount();
+    }
+}
 /*
  * strong pointer test
  */
 static void sp_test(void)
 {
-    printf("%s() test...\n", __func__);
-    sp<StrongClass> sc = new StrongClass();
+    printf("Test StrongClass: \n");
+    StrongClass* pStrongClass = new StrongClass();
+    TestStrongClass(pStrongClass);
+
+    printf("\nTest WeakClass: \n");
+    WeakClass* pWeakClass = new WeakClass();
+    TestWeakClass(pWeakClass);
+
+    printf("\nTest ForeverClass: \n");
+    ForeverClass* pForeverClass = new ForeverClass();
+    TestForeverClass(pForeverClass);
+    pForeverClass->printRefCount();
+    delete pForeverClass;
 }

@@ -113,6 +113,9 @@ inline status_t Mutex::tryLock()
 
 typedef Mutex::Autolock AutoMutex;
 
+/*
+ * macro COMPARE()
+ */
 #define COMPARE(_op_)                                  \
 inline bool operator _op_ (const sp<T>& o) const {     \
     return m_ptr _op_ o.m_ptr;                         \
@@ -135,10 +138,45 @@ template<typename U>                                   \
 inline bool operator _op_ (const U* o) const {         \
     return m_ptr _op_ o;                               \
 }
+
+#define COMPARE_WEAK(_op_)                             \
+inline bool operator _op_ (const sp<T>& o) const {     \
+    return m_ptr _op_ o.m_ptr;                         \
+}                                                      \
+inline bool operator _op_ (const T* o) const {         \
+    return m_ptr _op_ o;                               \
+}                                                      \
+template<typename U>                                   \
+inline bool operator _op_ (const sp<U>& o) const {     \
+    return m_ptr _op_ o.m_ptr;                         \
+}                                                      \
+template<typename U>                                   \
+inline bool operator _op_ (const U* o) const {         \
+    return m_ptr _op_ o;                               \
+}
 /*
  * const函数为何可以更改?
  * static_cast是什么东西?
  */
+int32_t android_atomic_cas(int32_t old_value, int32_t new_value, volatile int32_t *ptr)
+{
+    int32_t prev;
+    __asm__ __volatile__ ("lock; cmpxchgl %1, %2"
+                          : "=a" (prev)
+                          : "q" (new_value), "m" (*ptr), "0" (old_value)
+                          : "memory");
+    return prev != old_value;
+}
+
+static inline int32_t android_atomic_or(int32_t value, volatile int32_t *ptr)
+{
+    int32_t prev, status;
+    do {
+        prev = *ptr;
+        status = android_atomic_cas(prev, prev | value, ptr);
+    } while (__builtin_expect(status != 0, 0));
+    return prev;
+}
 static inline int32_t android_atomic_add(int32_t increment, volatile int32_t *ptr)
 {
     __asm__ __volatile__ ("lock; xaddl %0, %1"
@@ -155,6 +193,11 @@ static inline int32_t android_atomic_inc(volatile int32_t *val)
 static inline int32_t android_atomic_dec(volatile int32_t *val)
 {
     return android_atomic_add(-1, val);
+}
+
+static inline int32_t android_atomic_cmpxchg(int32_t old_value, int32_t new_value, volatile int32_t *ptr)
+{
+    return android_atomic_cas(old_value, new_value, ptr);
 }
 
 template <class T>
@@ -199,10 +242,10 @@ public:
         void incWeak(const void* id);
         void decWeak(const void* id);
 
-        bool attemptIncStrong(const void* id);
-        void getWeakCount() const;
-        void printRefs() const;
-        void trackMe(bool enable, bool retain);
+        bool    attemptIncStrong(const void* id);
+        int32_t getWeakCount() const;
+        void    printRefs() const;
+        void    trackMe(bool enable, bool retain);
     };
 
     weakref_type* createWeak(const void* id) const;
@@ -224,7 +267,7 @@ protected:
         OBJECT_LIFETIME_FOREVER = 0x0003,
     };
 
-    void extendOjectLifetime(int32_t mode);
+    void extendObjectLifetime(int32_t mode);
 
     //! Flags for onStrongAttempted()
     enum {
@@ -233,7 +276,7 @@ protected:
 
     virtual void onFirstRef();
     virtual void onLastStrongRef(const void* id);
-    virtual void onIncStrongAttempted(uint32_t flags, const void* id);
+    virtual bool onIncStrongAttempted(uint32_t flags, const void* id);
     virtual void onLastWeakRef(const void* id);
 
 private:
@@ -481,6 +524,12 @@ RefBase::RefBase()
 //  LOGV("Creating refs %p with RefBase %p\n", mRefs, this);
 }
 
+RefBase::weakref_type* RefBase::createWeak(const void *id) const
+{
+    mRefs->incWeak(id);
+    return mRefs;
+}
+
 void RefBase::weakref_type::incWeak(const void* id)
 {
     weakref_impl* const impl = static_cast<weakref_impl*>(this);
@@ -531,9 +580,83 @@ void RefBase::weakref_type::decWeak(const void* id)
     }
 }
 
+bool RefBase::weakref_type::attemptIncStrong(const void* id)
+{
+    incWeak(id);
+
+    weakref_impl* const impl = static_cast<weakref_impl*>(this);
+
+    int32_t curCount = impl->mStrong;
+    LOG_ASSERT(curCount >= 0, "attemptIncStrong called on %p after underflow", this);
+
+    while (curCount > 0 && curCount != INITIAL_STRONG_VALUE) {
+        if (android_atomic_cmpxchg(curCount, curCount + 1, &impl->mStrong) == 0) {
+            break;
+        }
+        curCount = impl->mStrong;
+    }
+
+    if (curCount <= 0 || curCount == INITIAL_STRONG_VALUE) {
+        bool allow;
+        if (curCount == INITIAL_STRONG_VALUE) {
+            // Attempting to acquire first strong reference... this is allowed
+            // if the object does NOT have a longer lifetime(meaning the
+            // implementaion doesn't need to see this), or if the implementation
+            // allows it to happen.
+            allow = (impl->mFlags & OBJECT_LIFETIME_WEAK) != OBJECT_LIFETIME_WEAK
+                || impl->mBase->onIncStrongAttempted(FIRST_INC_STRONG, id);
+        } else {
+            // Attempting to revive the object... this is allowed
+            // if the object DOES have a longer lifetime (so we can safely
+            // call the object with only a weak ref) and the implementation
+            // allows it to happen.
+            allow = (impl->mFlags & OBJECT_LIFETIME_WEAK) == OBJECT_LIFETIME_WEAK
+                && impl->mBase->onIncStrongAttempted(FIRST_INC_STRONG, id);
+
+        }
+        if (!allow) {
+            decWeak(id);
+            return false;
+        }
+        curCount = android_atomic_inc(&impl->mStrong);
+
+        // If the strong reference count has already been incremented by
+        // someone else, the implementor of onIncStrongAttemped() is holding
+        // an unneeded reference. So call onLastStrongRef() here to remove it.
+        // (No, this is not pretty.) Note that we MUST NOT do this if we
+        // are in fact acquiring the first reference.
+        if (curCount > 0 && curCount < INITIAL_STRONG_VALUE) {
+            impl->mBase->onLastStrongRef(id);
+        }
+    }
+
+    impl->addWeakRef(id);
+    impl->addStrongRef(id);
+
+#if PRINT_REFS
+    LOGD("attemptIncStrong of %p from %p: cnt=%d\n", this, id, curCount);
+#endif
+
+    if (curCount == INITIAL_STRONG_VALUE) {
+        android_atomic_add(-INITIAL_STRONG_VALUE, &impl->mStrong);
+        impl->mBase->onFirstRef();
+    }
+
+    return true;
+}
+
+int32_t  RefBase::weakref_type::getWeakCount() const
+{
+    return static_cast<const weakref_impl*>(this)->mWeak;
+}
+
 void RefBase::onFirstRef() { }
 void RefBase::onLastStrongRef(const void* id) { }
-void RefBase::onIncStrongAttempted(uint32_t flags, const void* id) { }
+bool RefBase::onIncStrongAttempted(uint32_t flags, const void* id)
+{
+    return (flags & FIRST_INC_STRONG) ? true : false;
+}
+
 void RefBase::onLastWeakRef(const void* id) { }
 
 RefBase::~RefBase()
@@ -545,6 +668,24 @@ RefBase::~RefBase()
     }
 }
 
+void RefBase::extendObjectLifetime(int32_t mode)
+{
+    android_atomic_or(mode, &mRefs->mFlags);
+}
+
+int32_t RefBase::getStrongCount() const
+{
+    return mRefs->mStrong;
+}
+
+RefBase::weakref_type* RefBase::getWeakRefs() const
+{
+    return mRefs;
+}
+
+/*
+ * strong pointer
+ */
 template <typename T>
 class sp {
 public:
@@ -604,6 +745,12 @@ sp<T>::sp(T* other)
 }
 
 template<typename T>
+sp<T>::sp(T *other, weakref_type* refs)
+    :m_ptr((other && refs->attemptIncStrong(this)) ? other : 0)
+{
+}
+
+template<typename T>
 sp<T>::sp(const sp<T>& other)
     : m_ptr(other.m_ptr)
 {
@@ -618,5 +765,112 @@ sp<T>::~sp()
     if (m_ptr) {
         m_ptr->decStrong(this);
     }
+}
+
+/*
+ * weak pointer
+ * 弱指针的最大特点是它不能直接操作目标对象
+ */
+template <typename T>
+class wp
+{
+public:
+    typedef typename RefBase::weakref_type weakref_type; // typename主要作用是告诉complier一个“变量”是一个新的“类型”
+
+    inline wp() : m_ptr(0) { }
+
+    wp(T* other);
+    wp(const wp<T>& other);
+    wp(const sp<T>& other);
+    template<typename U> wp(U* other);
+    template<typename U> wp(const sp<U>& other);
+    template<typename U> wp(const wp<U>& other);
+
+    ~wp();
+
+    // Assignment
+    wp& operator = (T* other);
+    wp& operator = (const wp<T>& other);
+    wp& operator = (const sp<T>& other);
+
+    void set_object_and_refs(T* other, weakref_type* refs);
+
+    // promotion to sp
+    sp<T> promote() const;
+
+    // Reset
+    void clear();
+
+    inline weakref_type* get_refs() const { return m_refs; }
+
+    inline T* unsafe_get() const { return m_ptr; }
+
+    // Operators
+    COMPARE_WEAK(==)
+    COMPARE_WEAK(!=)
+    COMPARE_WEAK(>)
+    COMPARE_WEAK(<)
+    COMPARE_WEAK(>=)
+    COMPARE_WEAK(<=)
+
+    inline bool operator == (const wp<T>& o) const {
+        return (m_ptr == o.m_ptr) && (m_refs == o.m_refs);
+    }
+
+    template<typename U>
+    inline bool operator == (const wp<U>& o) const {
+        return m_ptr == o.m_ptr;
+    }
+
+    inline bool operator > (const wp<T>& o) const {
+        return (m_ptr == o.m_ptr) ? (m_refs > o.m_refs) : (m_ptr > o.m_ptr);
+    }
+
+    inline bool operator < (const wp<T>& o) const {
+        return (m_ptr == o.m_ptr) ? (m_refs < o.m_refs) : (m_ptr < o.m_ptr);
+    }
+
+    template<typename U>
+    inline bool operator < (const wp<U>& o) const {
+        return (m_ptr == o.m_ptr) ? (m_refs < o.m_refs) : (m_ptr < o.m_ptr);
+    }
+
+    inline bool operator != (const wp<T>& o) { return m_refs != o.m_refs; }
+    template<typename U> inline bool operator != (const wp<U>& o) const { return !operator == (o); }
+    inline bool operator <= (const wp<T>& o) const { return !operator > (o); }
+    template<typename U> inline bool operator <= (const wp<U>& o) const { return !operator > (o); }
+    inline bool operator >= (const wp<T>& o) const { return !operator < (o); }
+    template<typename U> inline bool operator >= (const wp<U>& o) const { return !operator < (o); }
+
+private:
+    template<typename Y> friend class sp;
+    template<typename Y> friend class wp;
+
+    T*               m_ptr;
+    weakref_type*    m_refs;
+
+};
+
+template<typename T>
+wp<T>::wp(T* other)
+    : m_ptr(other)
+{
+    if (m_ptr) {
+        m_refs = other->createWeak(this);
+    }
+}
+
+template<typename T>
+wp<T>::~wp()
+{
+    if (m_ptr) {
+        m_refs->decWeak(this);
+    }
+}
+
+template<typename T>
+sp<T> wp<T>::promote() const
+{
+    return sp<T>(m_ptr, m_refs);
 }
 #endif
