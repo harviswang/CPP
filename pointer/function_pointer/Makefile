@@ -1,3 +1,2 @@
-CCC ?= c++
 all:
-	$(CCC) -Wall function_pointer_test.cpp
+	$(CXX) -Wall -Werror function_pointer_test.cpp

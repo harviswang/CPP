@@ -1,3 +1,2 @@
-CCC ?= c++
 all:
-	$(CCC) -Wall dynamic_cast_test.cpp
+	$(CXX) -Wall -Werror dynamic_cast_test.cpp

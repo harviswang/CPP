@@ -5,7 +5,7 @@ static void lp_test(void);
 static void sp_test(void);
 int main(int argc, char **argv)
 {
-    //lp_test();
+    lp_test();
     sp_test();
 
     return 0;
@@ -145,13 +145,13 @@ static void sp_test(void)
     StrongClass* pStrongClass = new StrongClass();
     TestStrongClass(pStrongClass);
 
-    printf("\nTest WeakClass: \n");
-    WeakClass* pWeakClass = new WeakClass();
-    TestWeakClass(pWeakClass);
-
-    printf("\nTest ForeverClass: \n");
-    ForeverClass* pForeverClass = new ForeverClass();
-    TestForeverClass(pForeverClass);
-    pForeverClass->printRefCount();
-    delete pForeverClass;
+//    printf("\nTest WeakClass: \n");
+//    WeakClass* pWeakClass = new WeakClass();
+//    TestWeakClass(pWeakClass);
+//
+//    printf("\nTest ForeverClass: \n");
+//    ForeverClass* pForeverClass = new ForeverClass();
+//    TestForeverClass(pForeverClass);
+//    pForeverClass->printRefCount();
+//    delete pForeverClass;
 }

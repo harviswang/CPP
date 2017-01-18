@@ -1,3 +1,2 @@
-CCC ?= g++
 all:
-	$(CCC) -Wall initialize_test.cpp
+	$(CXX) -Wall -Werror initialize_test.cpp

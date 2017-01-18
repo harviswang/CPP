@@ -2,9 +2,9 @@
 
 //template <typename T> /* ; */
 
-/*
- * 模板函数: 交换两个元素的值
- */
+//
+// 模板函数: 交换两个元素的值
+//
 template <typename T>
 static void swap(T& a, T& b) {
 	T tmp = a;
@@ -29,10 +29,6 @@ int main(int argc, char **argv)
 	Test test;
 	int a = 8;
 	int b = 90;
-	const int *arr[2] = {&a, &b};
-	int& ra = a;
-	int& rb = b;
-	
 	
 	std::cout << "a = " << a << " " << "b = " << b << std::endl;
 	swap(a, b);

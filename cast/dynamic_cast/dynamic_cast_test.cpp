@@ -21,11 +21,14 @@
 static void up_cast_test();
 static void down_cast_test();
 static void cross_cast_test();
+static void cross_cast2_test();
+
 int main(int argc, char *argv[])
 {
     up_cast_test();
     down_cast_test();
     cross_cast_test();
+    cross_cast2_test();
     return 0;
 }
 
@@ -120,4 +123,67 @@ static void cross_cast_test()
     printf("pCircle = %p\n", pCircle);
     printf("pShape2 = %p\n", pShape2);
     printf("pRollable2 = %p\n", pRollable2);
+}
+
+class QObject {
+
+};
+
+class IInteraction {
+public:
+    virtual int start() = 0;
+    static IInteraction* GetInstance()
+    {
+        return s_instance ? s_instance : NULL;
+    }
+
+protected:
+    IInteraction() { }
+    ~IInteraction() { }
+    static IInteraction *s_instance;
+
+private:
+    IInteraction(const IInteraction&);
+    IInteraction& operator=(const IInteraction&);
+};
+
+class StdInteraction : public QObject, public IInteraction {
+public:
+    int start() { printf("StdInteraction::start()\n"); return 0; }
+    static IInteraction* GetInstance() {
+        if (!IInteraction::s_instance) {
+            IInteraction::s_instance = new StdInteraction();
+        }
+        return IInteraction::s_instance; 
+    }
+};
+
+class SocketInteraction : public QObject, public IInteraction {
+public:
+    int start() { printf("SocketInteraction::start()\n"); return 0; }
+    static IInteraction* GetInstance() {
+        if (!IInteraction::s_instance) {
+            s_instance = new StdInteraction();
+        }
+        return s_instance;
+    }
+};
+
+class Burner : public QObject {
+public:
+    IInteraction *ia;
+    StdInteraction *std_ia;
+    SocketInteraction *soc_ia;
+};
+ 
+static void cross_cast2_test()
+{
+    Burner core_burner;
+//    core_burner.ia = StdInteraction::GetInstance();
+    (void)core_burner;
+//    core_burner.ia->start();
+//    printf("%p\n", dynamic_cast<SocketInteraction *>(core_burner.ia));
+//    SocketInteraction si;
+//    si.start();
+//    printf("IInteraction::s_instance = %p\n", IInteraction::GetInstance());
 }

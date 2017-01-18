@@ -1,3 +1,2 @@
-CCC ?= c++
 all:
-	$(CCC) -Wall array_test.cpp
+	$(CXX) -Wall -Werror array_test.cpp

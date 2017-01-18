@@ -1,3 +1,2 @@
-CCC ?= c++
 all:
-	$(CCC) -g -Wall LightPointer.cpp
+	$(CXX) -g -Wall -Werror LightPointer.cpp

@@ -6,6 +6,7 @@ static void constructor_assignment_test(void);
 static void constructor_assignment_new_test(void);
 static void constructor_private_test(void);
 extern void copy_constructor_test(void);
+static void constructor_subclass_test(void);
 
 int main(int argc, char **argv)
 {
@@ -14,6 +15,7 @@ int main(int argc, char **argv)
 	constructor_private_test();
 	copy_constructor_test();
 	constructor_protected_test();
+	constructor_subclass_test();
 
 	return 0;
 }
@@ -128,4 +130,54 @@ static void constructor_protected_test(void)
 {
     cout << __func__ << " test ...\n";
     Thinkpad e430;
+}
+
+class Society {
+public:
+    Society() { }
+    Society(Society* other) :
+        unemployment_rate(other->unemployment_rate) {
+
+    }
+    Society(float rate) { unemployment_rate = rate; }
+    ~Society() { }
+    float get_unemployment_rate() {
+        return unemployment_rate;
+    }
+
+    void set_unemployment_rate(float rate) {
+            unemployment_rate = rate;
+    }
+private:
+    float unemployment_rate;
+};
+
+class ChinaSociety : public Society {
+public:
+    ChinaSociety(){ }
+    ChinaSociety(Society *parent) :
+        Society(parent),
+        society(new ChinaSociety()) {
+    }
+    ~ChinaSociety() {
+        delete society;
+    }
+
+    void dump() {
+        cout << "unemployment_rate = " << society->get_unemployment_rate() << endl;
+    }
+private:
+    Society *society;
+};
+
+/*
+ * 子类构造函数中调用父类的构造函数
+ */
+static void constructor_subclass_test(void)
+{
+    Society *s = new Society(0.05);
+    ChinaSociety *cs = new ChinaSociety(s);
+    cs->dump();
+    delete cs;
+    delete s;
 }

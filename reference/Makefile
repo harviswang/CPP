@@ -1,4 +1,2 @@
-CCC ?= g++
-
 all:
-	$(CCC) -Wall reference_test.cpp
+	$(CXX) -Wall -Werror reference_test.cpp

@@ -1,3 +1,2 @@
-CCC ?= c++
 all:
-	$(CCC) -Wall -Werror virtual_test.cpp
+	$(CXX) -Wall -Werror virtual_test.cpp

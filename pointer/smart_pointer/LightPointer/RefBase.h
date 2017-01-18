@@ -775,7 +775,7 @@ template <typename T>
 class wp
 {
 public:
-    typedef typename RefBase::weakref_type weakref_type; // typename主要作用是告诉complier一个“变量”是一个新的“类型”
+    typedef /*typename*/ RefBase::weakref_type weakref_type; // typename主要作用是告诉complier一个“变量”是一个新的“类型”
 
     inline wp() : m_ptr(0) { }
 

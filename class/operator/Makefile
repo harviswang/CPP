@@ -1,4 +1,3 @@
-CCC ?= g++
 all:
-	$(CCC) -Wall operator_test.cpp
+	$(CXX) -Wall -Werror operator_test.cpp
 

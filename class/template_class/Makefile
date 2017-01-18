@@ -1,3 +1,2 @@
 all:
-	c++ -g -Wall template_test.cpp
-#	clang++ -g -Wall template_test.cpp
+	$(CXX) -Wall -Werror template_test.cpp
