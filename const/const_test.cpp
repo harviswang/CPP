@@ -47,10 +47,11 @@ public:
 	/*
 	 * const here means (const this)
 	 */
-	void setNum(int num) /*const*/ {this->num = num;}
-	void getNum() const {cout << this->num << endl;}
+	void setNum(int num) const {this->num = num;}
+	int getNum() { return this->num;}
+	const int getNum() const { return this->num << 2;}
 private:
-	int num;
+	mutable int num; // can be modified in const context
 };
 
 class B {
@@ -63,7 +64,11 @@ public:
 
 	A a;
 	a.setNum(100);
-	a.getNum();
+	int x = a.getNum();
+	const A a2;
+	a2.setNum(100);
+	const int y = a2.getNum();
+	std::cout << "x:" << x << "y:" << y << std::endl;
 	
 	/*
 	 * const object can only access it's const function

@@ -7,6 +7,7 @@
 #include <iostream>
 #include <stdio.h>
 #include <typeinfo> /* typeidf() */
+#include <vector>
 
 template <typename T>
 class A { 
@@ -43,6 +44,12 @@ int main()
     if (typeid(i) == typeid(j)) {
         printf("YES\n");
     }
+
+	std::vector<int> v;
+	v.push_back(0);
+	v.push_back(1);
+	v.push_back(2);
+	print2nd(v);
     
     return 0;
 }

@@ -6,6 +6,7 @@ static void reference_synopsis(void);
 static void reference_as_argument(void);
 static void reference_const(void);
 static void reference_as_return(void);
+static void reference_dangerous(void);
 
 int main(int argc, char **argv)
 {
@@ -13,6 +14,8 @@ int main(int argc, char **argv)
     reference_as_argument();
     reference_const();
     reference_as_return();
+    reference_dangerous();
+
 	return 0;
 }
 
@@ -172,4 +175,31 @@ static void reference_as_return(void)
 
     circle_area2(radius) = 789.0;
     cout << "temp is " << temp << endl;
+}
+
+static void reference_dangerous()
+{
+	int *e = new int(10);
+	e[0] = -1;
+	int &f = *e;
+	delete e;
+	f = 30;
+	std::cout << f << std::endl;
+}
+
+// swap_r and swap_p is the same in assemble code
+// can check it by comepiling with '-c' option,
+// objdump -D xxx.o
+void swap_r(int &a, int &b)
+{
+	int t = a;
+	a = b;
+	b = t;
+}
+
+void swap_p(int *a, int *b)
+{
+	int t = *a;
+	*a = *b;
+	*b = t;
 }
