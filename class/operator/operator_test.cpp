@@ -24,82 +24,126 @@
 #include <iostream>
 #include <stdio.h>
 
+using namespace std;
+
 class Person
 {
-#define DEBUG() printf("%s():%d\n", __func__, __LINE__)
 public:
     Person() { mAge = 0; }
-    Person(int age) { DEBUG(); mAge = age; }
- 
-    // Assignment
-    Person(const Person& o) { DEBUG(); }
-    Person(const Person* o) { DEBUG(); }
-    
+    Person(int age) { mAge = age; }
+
+private: 
+    // forbid copying
+    Person(const Person& o);
+    Person& operator= (const Person &rhs);
+
+public:
     // compare operator
-#define COMPARE(_op_)                    \
-bool operator _op_ (const Person& o) {   \
-    DEBUG();                             \
-    return mAge _op_ o.mAge;             \
-}                                        \
-bool operator _op_ (const Person* o) {   \
-    DEBUG();                             \
-    return mAge _op_ o->mAge;            \
-} 
-    COMPARE(==);
-    COMPARE(!=);
-    COMPARE(>);
-    COMPARE(<);
-    COMPARE(>=);
-    COMPARE(<=);
-#undef COMPARE
+    bool operator == (const Person& r) {
+	    return mAge == r.mAge;
+    }
+    bool operator == (const Person *r) {
+	    return mAge == r->mAge;
+    }
+
+    bool operator != (const Person &r) {
+	    return mAge != r.mAge;
+    }
+    bool operator != (const Person *r) {
+	    return mAge != r->mAge;
+    }
+
+    bool operator > (const Person &r) {
+	    return mAge > r.mAge;
+    }
+    bool operator > (const Person *r) {
+	    return mAge > r->mAge;
+    }
+
+    bool operator < (const Person &r) {
+	    return mAge < r.mAge;
+    }
+    bool operator < (const Person *r) {
+	    return mAge < r->mAge;
+    }
+
+    bool operator >= (const Person &r) {
+	    return mAge >= r.mAge;
+    }
+    bool operator >= (const Person *r) {
+	    return mAge >= r->mAge;
+    }
+
+    bool operator <= (const Person &r) {
+	    return mAge <= r.mAge;
+    }
+    bool operator <= (const Person *r) {
+	    return mAge <= r->mAge;
+    }
+    const char operator [] (unsigned n) const {
+	    return ((const char *)&mAge)[n];
+    }
+    
     // conversion operator
-    operator Person ();
-    operator int () { DEBUG(); return mAge; }
+    // usage: (int)(Person())
+    operator int () { return mAge; }
     
-    // i++/++i operator
-    Person& operator ++ () { DEBUG(); mAge++; return *this; }
-    Person operator ++ (int) { DEBUG(); Person tmp(*this); tmp.mAge++; return tmp; }
-    Person& operator += (int age) { DEBUG(); mAge += age; return *this; }
-    Person& operator -= (int age) { return operator+=( -age ); }
+    // ++i
+    Person& operator ++ () {
+	    mAge++;
+	    return *this;
+    }
+    // i++
+    Person operator ++ (int) {
+	    Person tmp(*this);
+	    tmp.mAge++;
+	    return tmp;
+    }
+    Person& operator += (int age) {
+	    mAge += age;
+	    return *this;
+    }
+    Person& operator -= (int age) {
+	    mAge -= age;
+	    return *this;
+    }
     
-    void printAge() { DEBUG(); printf("mAge = %d\n", mAge); }
+    void printAge() { printf("mAge = %d\n", mAge); }
 
 private:
     int mAge;
-#undef DEBUG
+
+public:
+    class Test {
+	    Person &per;
+	public:
+	    explicit Test(Person &p): per(p) {
+	    	per += 1;
+	    }
+	    ~Test() {
+	   	per -= 1; 
+	    }
+    };
 };
 
 int main(int argc, char **arv)
 {
     printf("operator test ...\n");
-    Person xiaoMing = Person(10);
-    Person zhangSan = Person(11);
+    Person xiaoMing(10);
+    Person zhangSan(11);
     
-#define TEST(_op_) printf(#_op_" %d\n", xiaoMing _op_ zhangSan);
-    TEST(==);
-    TEST(!=);
-    TEST(>);
-    TEST(<);
-    TEST(>=);
-    TEST(<=);
-#undef TEST
-
-    (Person)xiaoMing;
+    std::cout << (int)(Person());
     ++xiaoMing;
     xiaoMing.printAge();
-    xiaoMing++;
-    xiaoMing.printAge();
+    std::cout << std::endl;
+
+    zhangSan.printAge();
+    // temp scope
+    {
+    	Person::Test t(zhangSan);
+    }
+    zhangSan.printAge();
     
-    int a = xiaoMing;
-    printf("a = %d\n", a);
-    int b = zhangSan;
-    printf("b = %d\n", b);
-    
-    Person liSi = a; // a+b -> int(c);;; Person(c) -> liSi
-    liSi += b;
-    liSi.printAge();
-    liSi -= b;
-    liSi.printAge();
-    
+    cout << (int)xiaoMing[0] << endl;
     return 0;
 }

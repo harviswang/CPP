@@ -1,20 +1,23 @@
-#include <stdio.h>
 #include <iostream>
+#include "nullptr.h"
+// nullptr/NULL -std=c++0x
 
-class nullptr_t_t 
+void foo(int i)
 {
-public:
-	template<class T>          operator T*() const { return 0; }
-	template<class C, class T> operator T C::*() const { return 0; }
-private:
-	void operator&() const;
-} nullptr_t = {};
+	std::cout << "void foo(int i)" << std::endl;
+}
+
+void foo(char *p)
+{
+	std::cout << "void foo(char *p)" << std::endl;
+}
 
 int main(int argc, char *argv[])
 {
-	int a = 8;
-	printf("nullptr_t = %d\n", (nullptr_t_t::*)a);
-	printf("a = %d\n", a);
+	//std::cout << "NULL:" << NULL << std::endl;
+	//std::cout << "nullptr:" << nullptr << std::endl;
+	foo(0);
+	foo(nullptr_user);
 
 	return 0;
 }

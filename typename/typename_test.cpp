@@ -4,52 +4,31 @@
  *    例如template<class T> class Widget; 和 template<template T> class Widget;等价.
  *    然而，C++ 并不总是把 class 和 typename 视为等同的东西。有时你必须使用 typename。为了理解这一点，我们不得不讨论你会在一个 template（模板）中涉及到的两种名字.
  */
-#include <iostream>
-#include <stdio.h>
-#include <typeinfo> /* typeidf() */
-#include <vector>
-
-template <typename T>
-class A { 
-    public: 
-    typedef T a_type; 
-}; 
-
-template <typename L>
-class B { 
-    public: 
-    //typedef A::a_type b_type;
-    typedef typename L::a_type b_type;
-}; 
-
-template <typename C>
-void print2nd(const C& container)
-{
-    if (container.size() >= 2) {
-        typename C::const_iterator iter(container.begin());
-        ++iter;
-        int value = *iter;
-        printf("value = %d\n", value);
-    }
-}
-
-int main()
-{
-    printf("typename keyword test ...\n");
-    typedef A<int> a_int_type;
-    typedef B<a_int_type> b_int_type;
-    b_int_type::b_type i;
-    a_int_type::a_type j;
-    
-    if (typeid(i) == typeid(j)) {
-        printf("YES\n");
-    }
-
-	std::vector<int> v;
-	v.push_back(0);
-	v.push_back(1);
-	v.push_back(2);
-	print2nd(v);
-    
-    return 0;
+#include <iostream>  
+   
+template <typename T>  
+struct check  
+{  
+    check(void)  { std::cout << typeid(T).name(); }  
+    ~check(void) { std::cout << std::endl; }  
+};  
+   
+#define CHECK_TYPE__(OPT) \
+    template <typename T> \
+    struct check<T OPT> : check<T> \
+    { \
+        check(void) { std::cout << " "#OPT; } \
+    };
+   
+CHECK_TYPE__(const)  
+CHECK_TYPE__(volatile)  
+CHECK_TYPE__(const volatile)  
+CHECK_TYPE__(&)  
+CHECK_TYPE__(&&)  
+CHECK_TYPE__(*)  
+   
+int main(void)  
+{  
+    check<const volatile void * const*&>();  
+    return 0;  
 }

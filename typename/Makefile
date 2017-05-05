@@ -1,2 +1,2 @@
 all:
-	$(CXX) -Wall -Werror typename_test.cpp
+	$(CXX) -std=c++0x -Wall -Werror typename_test.cpp
